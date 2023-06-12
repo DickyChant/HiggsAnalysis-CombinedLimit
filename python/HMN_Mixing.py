@@ -10,13 +10,14 @@ class HMN_Mixing_Steering(PhysicsModel):
     
     def getYieldScale(self,bin,process):
         if 'hmn_m' in process:
-            return "r * r"
+            return "rsquared"
         elif 'HN' in process:
             return "r"
         else:
             return 1
     def doParametersOfInterest(self):
         self.modelBuilder.doVar("r[0.,-100.,100.]")
+        self.modelBuilder.factory_("expr::rsquared(\"@0*@0\",r)")
         self.modelBuilder.doSet("POI","r")
 
-hmn_mixing_steering = HMN_Mixing_Steering
+hmn_mixing_steering = HMN_Mixing_Steering()
