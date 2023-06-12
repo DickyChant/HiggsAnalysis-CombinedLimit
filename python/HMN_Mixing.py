@@ -16,7 +16,7 @@ class HMN_Mixing_Steering(PhysicsModel):
         else:
             return 1
     def doParametersOfInterest(self):
-        self.modelBuilder.doVar("r[0.,-100.,100.]"):
+        self.modelBuilder.doVar("r[0.,-100.,100.]")
         self.modelBuilder.doSet("POI","r")
 
 hmn_mixing_steering = HMN_Mixing_Steering
