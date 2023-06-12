@@ -11,8 +11,7 @@ class HMN_Mixing_Steering(PhysicsModel):
     def getYieldScale(self,bin,process):
         if 'hmn_m' in process:
             return "r * r"
-        elif:
-            'HN' in process:
+        elif 'HN' in process:
             return "r"
         else:
             return 1
