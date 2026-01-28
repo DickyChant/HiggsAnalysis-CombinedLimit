@@ -118,6 +118,7 @@ void FitterAlgoBase::applyOptionsBase(const boost::program_options::variables_ma
             ,minimizerToleranceForMinos_,minimizerStrategyForMinos_,minimizerAlgoForMinos_.c_str()))
             ,__func__);
      }
+    }
 }
 
 bool FitterAlgoBase::run(RooWorkspace *w, RooStats::ModelConfig *mc_s, RooStats::ModelConfig *mc_b, RooAbsData &data, double &limit, double &limitErr, const double *hint) { 
