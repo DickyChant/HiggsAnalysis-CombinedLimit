@@ -483,6 +483,19 @@ void Combine::run(TString hlfFile, const std::string &dataset, double &limit, do
     }
     
     if (setPhysicsModelParameterRangeExpression_ != "") {
+      // Check if r is in setParameterRanges while rMin/rMax are also specified
+      if (!isnan(rMin_) || !isnan(rMax_)) {
+        vector<string> rangeList = Utils::split(setPhysicsModelParameterRangeExpression_, ":");
+        for (const auto& rangeExpr : rangeList) {
+          vector<string> parts = Utils::split(rangeExpr, "=,");
+          if (parts.size() >= 1 && parts[0] == "r") {
+            std::cerr << "Warning: The range of r is specified in both --rMin/--rMax "
+                         "and --setParameterRanges. The argument of --setParameterRanges will take "
+                         "precedence\n";
+            break;
+          }
+        }
+      }
       utils::setModelParameterRanges( setPhysicsModelParameterRangeExpression_, w->allVars());
     }
     //*********************************************
