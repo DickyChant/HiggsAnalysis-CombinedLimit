@@ -548,7 +548,6 @@ void MultiDimFit::doImpact(RooFitResult &res, RooAbsReal &nll) {
     // Then set this NP constant
     poiVars_[i]->setConstant(true);
     CascadeMinimizer minim(nll, CascadeMinimizer::Constrained);
-    //minim.setStrategy(minimizerStrategy_);
     // Another snapshot to reset between high and low fits
     RooArgSet snap;
     params->snapshot(snap);
@@ -615,7 +614,6 @@ void MultiDimFit::doGrid(RooWorkspace *w, RooAbsReal &nll)
     CascadeMinimizer minim(nll, CascadeMinimizer::Constrained);
     if (!autoBoundsPOIs_.empty()) minim.setAutoBounds(&autoBoundsPOISet_); 
     if (!autoMaxPOIs_.empty()) minim.setAutoMax(&autoMaxPOISet_); 
-    //minim.setStrategy(minimizerStrategy_);
     std::unique_ptr<RooArgSet> params(nll.getParameters((const RooArgSet *)0));
     RooArgSet snap; params->snapshot(snap);
     if (verbose > 1) {
@@ -934,7 +932,6 @@ void MultiDimFit::doRandomPoints(RooWorkspace *w, RooAbsReal &nll)
     CascadeMinimizer minim(nll, CascadeMinimizer::Constrained);
     if (!autoBoundsPOIs_.empty()) minim.setAutoBounds(&autoBoundsPOISet_); 
     if (!autoMaxPOIs_.empty()) minim.setAutoMax(&autoMaxPOISet_); 
-    //minim.setStrategy(minimizerStrategy_);
     unsigned int n = poi_.size();
     for (unsigned int j = 0; j < points_; ++j) {
         for (unsigned int i = 0; i < n; ++i) {
@@ -973,12 +970,8 @@ void MultiDimFit::doFixedPoint(RooWorkspace *w, RooAbsReal &nll)
     CascadeMinimizer minim(nll, CascadeMinimizer::Constrained);
     if (!autoBoundsPOIs_.empty()) minim.setAutoBounds(&autoBoundsPOISet_); 
     if (!autoMaxPOIs_.empty()) minim.setAutoMax(&autoMaxPOISet_); 
-    //minim.setStrategy(minimizerStrategy_);
     unsigned int n = poi_.size();
 
-    //for (unsigned int i = 0; i < n; ++i) {
-    //        std::cout<<" Before setting fixed point "<<poiVars_[i]->GetName()<<"= "<<poiVals_[i]<<std::endl;
-    //}
     if (fixedPointPOIs_ != "") {
 	    utils::setModelParameters( fixedPointPOIs_, w->allVars());
     } else if (setPhysicsModelParameterExpression_ != "") {

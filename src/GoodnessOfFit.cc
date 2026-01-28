@@ -36,9 +36,6 @@
 using namespace RooStats;
 
 std::string GoodnessOfFit::algo_;
-//std::string GoodnessOfFit::minimizerAlgo_ = "Minuit2";
-//float       GoodnessOfFit::minimizerTolerance_ = 1e-4;
-//int         GoodnessOfFit::minimizerStrategy_  = 1;
 float       GoodnessOfFit::mu_ = 0.0;
 bool        GoodnessOfFit::fixedMu_ = false;
 bool        GoodnessOfFit::makePlots_ = false;
@@ -55,9 +52,6 @@ GoodnessOfFit::GoodnessOfFit() :
         ("algorithm",          boost::program_options::value<std::string>(&algo_), "Goodness of fit algorithm. Supported algorithms are 'saturated', 'KS' and 'AD'.")
         ("setParametersForFit",   boost::program_options::value<std::string>(&setParametersForFit_)->default_value(""), "Set parameter values for the saturated model fitting step")
         ("setParametersForEval",   boost::program_options::value<std::string>(&setParametersForEval_)->default_value(""), "Set parameter values for the saturated model NLL eval step")
-  //      ("minimizerAlgo",      boost::program_options::value<std::string>(&minimizerAlgo_)->default_value(minimizerAlgo_), "Choice of minimizer (Minuit vs Minuit2)")
-  //      ("minimizerTolerance", boost::program_options::value<float>(&minimizerTolerance_)->default_value(minimizerTolerance_),  "Tolerance for minimizer")
-  //      ("minimizerStrategy",  boost::program_options::value<int>(&minimizerStrategy_)->default_value(minimizerStrategy_),      "Stragegy for minimizer")
         ("fixedSignalStrength", boost::program_options::value<float>(&mu_)->default_value(mu_),  "Compute the goodness of fit for a fixed signal strength. If not specified, it is left floating")
         ("plots",  "Make plots containing information of the computation of the Anderson-Darling or Kolmogorov-Smirnov test statistic")
     ;
@@ -79,10 +73,6 @@ void GoodnessOfFit::applyOptions(const boost::program_options::variables_map &vm
 }
 
 bool GoodnessOfFit::run(RooWorkspace *w, RooStats::ModelConfig *mc_s, RooStats::ModelConfig *mc_b, RooAbsData &data, double &limit, double &limitErr, const double *hint) { 
-  //double minimizerTolerance_  = ROOT::Math::MinimizerOptions::DefaultTolerance();
-  //std::string minimizerAlgo_       = ROOT::Math::MinimizerOptions::DefaultMinimizerAlgo();
-  //Significance::MinimizerSentry minimizerConfig(minimizerAlgo_, minimizerTolerance_);
-
   RooRealVar *r = dynamic_cast<RooRealVar *>(mc_s->GetParametersOfInterest()->first());
   if (fixedMu_) { r->setVal(mu_); r->setConstant(true); }
   if (algo_ == "saturated") return runSaturatedModel(w, mc_s, mc_b, data, limit, limitErr, hint);
@@ -193,7 +183,6 @@ bool GoodnessOfFit::runSaturatedModel(RooWorkspace *w, RooStats::ModelConfig *mc
     utils::setModelParameters(setParametersForFit_, w->allVars());
   }
   CascadeMinimizer minimn(*nominal_nll, CascadeMinimizer::Unconstrained);
- // minimn.setStrategy(minimizerStrategy_);
   minimn.minimize(verbose-2);
   // This test is a special case where we are comparing the likelihoods of two
   // different models and so we can't re-zero the NLL with respect to the
@@ -211,7 +200,6 @@ bool GoodnessOfFit::runSaturatedModel(RooWorkspace *w, RooStats::ModelConfig *mc
     utils::setModelParameters(setParametersForFit_, w->allVars());
   }
   CascadeMinimizer minims(*saturated_nll, CascadeMinimizer::Unconstrained);
-  //minims.setStrategy(minimizerStrategy_);
   minims.minimize(verbose-2);
   if (dynamic_cast<cacheutils::CachingSimNLL*>(saturated_nll.get())) {
     static_cast<cacheutils::CachingSimNLL*>(saturated_nll.get())->clearConstantZeroPoint();
@@ -259,7 +247,6 @@ bool GoodnessOfFit::runKSandAD(RooWorkspace *w, RooStats::ModelConfig *mc_s, Roo
   RooArgSet const *cPars = withSystematics ? mc_s->GetNuisanceParameters() : nullptr;
   auto nll = combineCreateNLL(*pdf, data, /*constrain=*/cPars, /*offset=*/false);
   CascadeMinimizer minim(*nll, CascadeMinimizer::Unconstrained);
-  //minims.setStrategy(minimizerStrategy_);
   minim.minimize(verbose-2);
 
   sentry.clear();

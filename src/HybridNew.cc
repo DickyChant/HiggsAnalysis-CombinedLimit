@@ -86,8 +86,6 @@ bool HybridNew::newToyMCSampler_        = true;
 bool HybridNew::rMinSet_                = false;
 bool HybridNew::rMaxSet_                = false;
 std::string HybridNew::plot_;
-//std::string HybridNew::minimizerAlgo_ = "Minuit2";
-//float       HybridNew::minimizerTolerance_ = 1e-2;
 float       HybridNew::adaptiveToys_ = -1;
 bool        HybridNew::reportPVal_ = false;
 float HybridNew::confidenceToleranceForToyScaling_ = 0.2;
@@ -127,8 +125,6 @@ LimitAlgo("HybridNew specific options") {
                                    "Use optimized test statistics if the likelihood is not extended (works for LEP and TEV test statistics).")
         ("optimizeProductPdf",     boost::program_options::value<bool>(&optimizeProductPdf_)->default_value(optimizeProductPdf_),
                                    "Optimize the code factorizing pdfs")
-        //("minimizerAlgo",      boost::program_options::value<std::string>(&minimizerAlgo_)->default_value(minimizerAlgo_), "Choice of minimizer used for profiling (Minuit vs Minuit2)")
-        //("minimizerTolerance", boost::program_options::value<float>(&minimizerTolerance_)->default_value(minimizerTolerance_),  "Tolerance for minimizer used for profiling")
         ("plot",   boost::program_options::value<std::string>(&plot_), "Save a plot of the result (test statistics distributions or limit scan)")
         ("frequentist", "Shortcut to switch to Frequentist mode (--generateNuisances=0 --generateExternalMeasurements=1 --fitNuisances=1)")
         ("newToyMCSampler", boost::program_options::value<bool>(&newToyMCSampler_)->default_value(newToyMCSampler_), "Use new ToyMC sampler with support for mixed binned-unbinned generation. On by default, you can turn it off if it doesn't work for your workspace.")
@@ -275,11 +271,6 @@ void HybridNew::setupPOI(RooStats::ModelConfig *mc_s) {
 bool HybridNew::run(RooWorkspace *w, RooStats::ModelConfig *mc_s, RooStats::ModelConfig *mc_b, RooAbsData &data, double &limit, double &limitErr, const double *hint) {
     RooFitGlobalKillSentry silence(verbose <= 1 ? RooFit::FATAL : RooFit::DEBUG);
 
-    //double minimizerTolerance_  = ROOT::Math::MinimizerOptions::DefaultTolerance();
-    //std::string minimizerAlgo_  = ROOT::Math::MinimizerOptions::DefaultMinimizerAlgo();
-    //std::string minimizerType_  = ROOT::Math::MinimizerOptions::DefaultMinimizerType();
-
-    //Significance::MinimizerSentry minimizerConfig(minimizerType_+","+minimizerAlgo_, minimizerTolerance_); // These defaults should already be configured via the CascadeMinimizer
     perf_totalToysRun_ = 0; // reset performance counter
     if (rValues_.getSize() == 0) setupPOI(mc_s);
     switch (workingMode_) {

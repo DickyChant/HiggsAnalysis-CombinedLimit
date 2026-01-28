@@ -33,9 +33,6 @@ bool  AsymptoticLimits::noFitAsimov_ = false;
 bool  AsymptoticLimits::useGrid_ = false; 
 bool  AsymptoticLimits::newExpected_ = true; 
 std::string AsymptoticLimits::minosAlgo_ = "stepping"; 
-//std::string AsymptoticLimits::minimizerAlgo_ = "Minuit2";
-//float       AsymptoticLimits::minimizerTolerance_ = 0.01;
-//int         AsymptoticLimits::minimizerStrategy_  = 0;
 double AsymptoticLimits::rValue_ = 1.0;
 bool AsymptoticLimits::strictBounds_ = false;
 
@@ -48,9 +45,6 @@ LimitAlgo("AsymptoticLimits specific options") {
         ("rRelAcc", boost::program_options::value<double>(&rRelAccuracy_)->default_value(rRelAccuracy_), "Relative accuracy on r to reach to terminate the scan")
         ("run", boost::program_options::value<std::string>(&what_)->default_value(what_), "What to run: both (default), observed, expected, blind.")
         ("singlePoint",  boost::program_options::value<double>(&rValue_),  "Just compute CLs for the given value of r")
-        //("minimizerAlgo",      boost::program_options::value<std::string>(&minimizerAlgo_)->default_value(minimizerAlgo_), "Choice of minimizer used for profiling (Minuit vs Minuit2)")
-        //("minimizerTolerance", boost::program_options::value<float>(&minimizerTolerance_)->default_value(minimizerTolerance_),  "Tolerance for minimizer used for profiling")
-        //("minimizerStrategy",  boost::program_options::value<int>(&minimizerStrategy_)->default_value(minimizerStrategy_),      "Stragegy for minimizer")
         ("qtilde", boost::program_options::value<bool>(&qtilde_)->default_value(qtilde_),  "Allow only non-negative signal strengths (default is true).")
         ("rule",    boost::program_options::value<std::string>(&rule_)->default_value(rule_),            "Rule to use: CLs, Pmu")
         ("picky", "Abort on fit failures")
@@ -98,11 +92,6 @@ void AsymptoticLimits::applyDefaultOptions() {
 
 bool AsymptoticLimits::run(RooWorkspace *w, RooStats::ModelConfig *mc_s, RooStats::ModelConfig *mc_b, RooAbsData &data, double &limit, double &limitErr, const double *hint) {
     RooFitGlobalKillSentry silence(verbose <= 1 ? RooFit::WARNING : RooFit::DEBUG);
-    /*
-    ProfileLikelihood::MinimizerSentry minimizerConfig(minimizerAlgo_, minimizerTolerance_);
-    if (verbose > 0) std::cout << "Will compute " << what_ << " limit(s) using minimizer " << minimizerAlgo_ 
-                        << " with strategy " << minimizerStrategy_ << " and tolerance " << minimizerTolerance_ << std::endl;
-    */
     hasDiscreteParams_ = false;  
     if (params_.get() == 0) params_.reset(mc_s->GetPdf()->getParameters(data));
     for (RooAbsArg *a : *params_) {
@@ -178,7 +167,6 @@ bool AsymptoticLimits::runLimit(RooWorkspace *w, RooStats::ModelConfig *mc_s, Ro
     CloseCoutSentry sentry(verbose < 3);
     *params_ = snapGlobalObsData;
     CascadeMinimizer minim(*nllD_, CascadeMinimizer::Unconstrained, r);
-    //minim.setStrategy(minimizerStrategy_);
     minim.minimize(verbose-2);
     fitFreeD_.readFrom(*params_);
     minNllD_ = nllD_->getVal();
@@ -198,7 +186,6 @@ bool AsymptoticLimits::runLimit(RooWorkspace *w, RooStats::ModelConfig *mc_s, Ro
     CloseCoutSentry sentry(verbose < 3);
     *params_ = snapGlobalObsAsimov;
     CascadeMinimizer minim(*nllA_, CascadeMinimizer::Unconstrained, r);
-    //minim.setStrategy(minimizerStrategy_);
     minim.minimize(verbose-2);
     fitFreeA_.readFrom(*params_);
     minNllA_ = nllA_->getVal();
@@ -279,7 +266,6 @@ double AsymptoticLimits::getCLs(RooRealVar &r, double rVal, bool getAlsoExpected
   CloseCoutSentry sentry(verbose < 3);
 
   CascadeMinimizer minimD(*nllD_, CascadeMinimizer::Constrained, &r);
-  //minimD.setStrategy(minimizerStrategy_);  
 
   (!fitFixD_.empty() ? fitFixD_ : fitFreeD_).writeTo(*params_);
   *params_ = snapGlobalObsData;
@@ -304,7 +290,6 @@ double AsymptoticLimits::getCLs(RooRealVar &r, double rVal, bool getAlsoExpected
 
 
   CascadeMinimizer minimA(*nllA_, CascadeMinimizer::Constrained, &r);
-  //minimA.setStrategy(minimizerStrategy_); 
 
   (!fitFixA_.empty() ? fitFixA_ : fitFreeA_).writeTo(*params_);
   *params_ = snapGlobalObsAsimov;
@@ -397,7 +382,6 @@ std::vector<std::pair<float,float> > AsymptoticLimits::runLimitExpected(RooWorks
     
     auto nll = combineCreateNLL(*mc_s->GetPdf(), *asimov, /*constrain=*/mc_s->GetNuisanceParameters(), /*offset=*/false);
     CascadeMinimizer minim(*nll, CascadeMinimizer::Unconstrained, r);
-    //minim.setStrategy(minimizerStrategy_);
     minim.setErrorLevel(0.5*pow(ROOT::Math::normal_quantile(1-0.5*(1-cl),1.0), 2)); // the 0.5 is because qmu is -2*NLL
                         // eventually if cl = 0.95 this is the usual 1.92!
     CloseCoutSentry sentry(verbose < 3);    
@@ -470,7 +454,6 @@ float AsymptoticLimits::findExpectedLimitFromCrossing(RooAbsReal &nll, RooRealVa
         double rMax0 = r->getMax();
         // Have to repeat the fit, but I'm already at the minimum
         CascadeMinimizer minim(nll, CascadeMinimizer::Unconstrained, r);
-        //minim.setStrategy(minimizerStrategy_);
         minim.setErrorLevel(errorlevel); 
         CloseCoutSentry sentry(verbose < 3);
         minim.minimize(verbose-2);
@@ -482,7 +465,6 @@ float AsymptoticLimits::findExpectedLimitFromCrossing(RooAbsReal &nll, RooRealVa
                     if (r->getMax() >= 100*rMax0) { minosStat = -1; break; }
                     r->setMax(2*r->getMax());
                     CascadeMinimizer minim2(nll, CascadeMinimizer::Unconstrained, r);
-                    //minim2.setStrategy(minimizerStrategy_);
                     minim2.setErrorLevel(errorlevel); 
                     minim2.minimize(verbose-2);
                     minosStat = minim2.minimizer().minos(RooArgSet(*r));
@@ -510,7 +492,6 @@ float AsymptoticLimits::findExpectedLimitFromCrossing(RooAbsReal &nll, RooRealVa
         double rCross = 0.5*(rMin+rMax), rErr = 0.5*(rMax-rMin);
         r->setVal(rCross); r->setConstant(true);
         CascadeMinimizer minim2(nll, CascadeMinimizer::Constrained);
-        //minim2.setStrategy(minimizerStrategy_);
         if (minosAlgo_ == "bisection") {
             if (verbose > 1) CombineLogger::instance().log("AsymptoticLimits.cc",__LINE__,"Will search for NLL crossing by bisection",__func__);
             if (strictBounds_) minosStat = 0; // the bracket is correct by construction in this case
