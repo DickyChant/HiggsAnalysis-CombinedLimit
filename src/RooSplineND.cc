@@ -21,7 +21,11 @@ RooSplineND::RooSplineND(const char *name, const char *title, RooArgList &vars, 
   std::cout << "RooSplineND -- Num Dimensions == " << ndim_ <<std::endl;
   std::cout << "RooSplineND -- Num Samples    == " << M_ << std::endl;
 
-  float *b_map = new float(ndim_);
+  // Upstream: `new float(ndim_)` allocates ONE float initialised to value
+  // ndim_ (a textbook C++ bug). With ndim_ > 1 the `&b_map[k]`
+  // SetBranchAddress calls below write past the single-float allocation
+  // → undefined behaviour. Allocate an actual array instead.
+  float *b_map = new float[ndim_];
 
   int it_c=0;
   for (RooAbsArg *rIt : vars) {
@@ -61,7 +65,7 @@ RooSplineND::RooSplineND(const char *name, const char *title, RooArgList &vars, 
   axis_pts_ = TMath::Power(M_,1./ndim_);
   eps_= eps;
   calculateWeights(F_vec); 
-  delete b_map;	
+  delete[] b_map;  // matches new[] above	
 }
 
 //_____________________________________________________________________________
