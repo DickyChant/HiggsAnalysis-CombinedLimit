@@ -1000,8 +1000,10 @@ class ShapeBuilder(ModelBuilder):
                 if histpdf.get().getSize() > 2:
                     raise ValueError("No support for 3+ dimensional histpdfs")
                 elif histpdf.get().getSize() > 1:
-                    xvar = histpdf.get().first()
-                    yvar = histpdf.get().second()
+                    # ROOT 6.30 RooArgSet no longer exposes .second(); iterate instead.
+                    _vars = list(histpdf.get())
+                    xvar = _vars[0]
+                    yvar = _vars[1]
                     rhp = ROOT.FastVerticalInterpHistPdf2D2(
                         f"shape{postFix}_{channel}_{process}_morph",
                         "",
