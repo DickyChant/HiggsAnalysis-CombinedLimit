@@ -59,6 +59,15 @@ parser.add_option(
     action="store_true",
     help="Swap multipdf pdfs with their current index pdf",
 )
+
+parser.add_option(
+    "--no-use-tree-storage-unbinned",
+    dest="useTreeStorageUnbinned",
+    default=True,
+    action="store_false",
+    help="Disable tree storage for unbinned data (default: enabled)",
+)
+
 (options, args) = parser.parse_args()
 
 if len(args) == 0:
@@ -73,6 +82,9 @@ if options.fileName.endswith(".gz"):
     options.fileName = options.fileName[:-3]
 else:
     file = open(options.fileName)
+
+if options.useTreeStorageUnbinned:
+    ROOT.RooAbsData.setDefaultStorageType(ROOT.RooAbsData.Tree)
 
 ## Parse text file
 DC = parseCard(file, options)
