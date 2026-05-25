@@ -63,9 +63,9 @@ parser.add_option(
 parser.add_option(
     "--use-tree-storage-unbinned",
     dest="useTreeStorageUnbinned",
-    default=False,
+    default=True,
     action="store_true",
-    help="Use tree storage for unbinned data",
+    help="Use tree storage for unbinned data (default: enabled)",
 )
 
 (options, args) = parser.parse_args()
@@ -85,7 +85,7 @@ else:
 
 if options.useTreeStorageUnbinned:
     ROOT.RooAbsData.setDefaultStorageType(ROOT.RooAbsData.Tree)
-    
+
 ## Parse text file
 DC = parseCard(file, options)
 
