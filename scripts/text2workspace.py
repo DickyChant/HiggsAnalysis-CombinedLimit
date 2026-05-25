@@ -67,6 +67,12 @@ parser.add_option(
     action="store_true",
     help="Use tree storage for unbinned data (default: enabled)",
 )
+parser.add_option(
+    "--no-use-tree-storage-unbinned",
+    dest="useTreeStorageUnbinned",
+    action="store_false",
+    help="Disable tree storage for unbinned data",
+)
 
 (options, args) = parser.parse_args()
 
