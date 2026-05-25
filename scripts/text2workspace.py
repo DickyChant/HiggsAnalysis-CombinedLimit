@@ -61,18 +61,11 @@ parser.add_option(
 )
 
 parser.add_option(
-    "--use-tree-storage-unbinned",
-    dest="useTreeStorageUnbinned",
-    default=True,
-    action="store_const",
-    const=True,
-    help="Use tree storage for unbinned data (default: enabled)",
-)
-parser.add_option(
     "--no-use-tree-storage-unbinned",
     dest="useTreeStorageUnbinned",
+    default=True,
     action="store_false",
-    help="Disable tree storage for unbinned data",
+    help="Disable tree storage for unbinned data (default: enabled)",
 )
 
 (options, args) = parser.parse_args()
