@@ -13,6 +13,8 @@
 #include <stdexcept>
 
 #include "TH2F.h"
+#include "TTree.h"
+#include "TVectorD.h"
 #include "TDirectory.h"
 #include "TFile.h"
 #include "TMatrixD.h"
@@ -328,7 +330,17 @@ void RobustHesse::RemoveFromHessian(std::vector<unsigned> const& ids) {
 
 
 
-int RobustHesse::hesse() {
+int RobustHesse::hesse(unsigned NsplitHesse, unsigned iHesse) {
+
+  if (NsplitHesse < 1 || iHesse < 1 || iHesse > NsplitHesse) {
+    std::cerr << ">> Error in RobustHesse::hesse: invalid split configuration iHesse = " << iHesse << ", NsplitHesse = " << NsplitHesse << " (need 1 <= iHesse <= NsplitHesse)\n";
+    return 1;
+  }
+  const bool partial = (NsplitHesse > 1) && mergeFile_.empty() && loadFile_.empty();
+  if (partial && saveFile_.empty()) {
+    std::cerr << ">> Error in RobustHesse::hesse: a split Hessian job (NsplitHesse > 1) needs a save file (--robustHesseSave) for its part\n";
+    return 1;
+  }
 
   // Step 1: try and set parameter stencils at the target NLL values
   for (unsigned i = 0; i < cVars_.size(); ++i) {
@@ -358,16 +370,52 @@ int RobustHesse::hesse() {
   }
 
   // Step 2: Calculate and populate hessian
-  hessian_ = std::unique_ptr<TMatrixDSym>(new TMatrixDSym(cVars_.size()));
-  unsigned ntotal = (((cVars_.size() * cVars_.size()) - cVars_.size()) / 2) + cVars_.size();
+  const unsigned nvars = cVars_.size();
+  hessian_ = std::unique_ptr<TMatrixDSym>(new TMatrixDSym(nvars));
+  unsigned ntotal = (((nvars * nvars) - nvars) / 2) + nvars;
   unsigned idx = 0;
 
-  if (loadFile_ != "") {
+  if (!mergeFile_.empty()) {
+    if (!mergePartialHessian()) return 1;
+  } else if (loadFile_ != "") {
     TFile fin(loadFile_.c_str());
-    *hessian_ = *((TMatrixDSym*)gDirectory->Get("hessian"));
+    if (fin.IsZombie() || !fin.IsOpen()) {
+      std::cerr << ">> Error in RobustHesse::hesse: cannot open Hessian file " << loadFile_ << "\n";
+      return 1;
+    }
+    TMatrixDSym *loaded = dynamic_cast<TMatrixDSym*>(fin.Get("hessian"));
+    if (!loaded) {
+      std::cerr << ">> Error in RobustHesse::hesse: no TMatrixDSym \"hessian\" in " << loadFile_ << "\n";
+      return 1;
+    }
+    if (loaded->GetNrows() != int(nvars)) {
+      std::cerr << ">> Error in RobustHesse::hesse: Hessian in " << loadFile_ << " has dimension " << loaded->GetNrows()
+                << " but " << nvars << " parameters have valid stencils in this job\n";
+      return 1;
+    }
+    *hessian_ = *loaded;
   } else {
-    for (unsigned i = 0; i < cVars_.size(); ++i) {
-      for (unsigned j = i; j < cVars_.size(); ++j) {
+    // Range [idxMin, idxMax) of the upper-triangle cells (row-major, j >= i) computed by this job
+    unsigned idxMin = 0;
+    unsigned idxMax = ntotal;
+    if (NsplitHesse > 1) {
+      if (NsplitHesse > ntotal) {
+        std::cerr << ">> Error in RobustHesse::hesse: NsplitHesse (" << NsplitHesse << ") must not exceed the number of independent Hessian cells ("
+                  << ntotal << " for " << nvars << " parameters)\n";
+        return 1;
+      }
+      unsigned cellsPerJob = ntotal / NsplitHesse;
+      idxMin = cellsPerJob * (iHesse - 1);
+      idxMax = cellsPerJob * iHesse;
+      if (iHesse == NsplitHesse) idxMax = ntotal;  // last job takes the remainder
+      std::cout << ">> Split Hessian: job " << iHesse << "/" << NsplitHesse << " computes cells [" << idxMin << ", " << idxMax << ") of " << ntotal << "\n";
+    }
+    for (unsigned i = 0; i < nvars; ++i) {
+      for (unsigned j = i; j < nvars; ++j) {
+        if (idx < idxMin || idx >= idxMax) {
+          ++idx;
+          continue;
+        }
         if (idx % 100 == 0) {
           if (verbosity_ > 0) std::cout << " - Done " << idx << "/" << ntotal << " terms (" << nllEvals_ << " evals, of which " << nllEvalsCached_ << " cached)\n";
         }
@@ -401,13 +449,17 @@ int RobustHesse::hesse() {
         ++idx;
       }
     }
+    if (NsplitHesse > 1) {
+      std::string partFile = PartialHessianFileName(saveFile_, iHesse, NsplitHesse);
+      if (!savePartialHessian(partFile, NsplitHesse, iHesse, idxMin, idxMax, ntotal)) return 1;
+      std::cout << ">> Partial Hessian (job " << iHesse << "/" << NsplitHesse << ") saved to " << partFile << "\n";
+      return 0;
+    }
+    if (saveFile_ != "") {
+      TFile fout(saveFile_.c_str(), "RECREATE");
+      gDirectory->WriteObject(hessian_.get(), "hessian");
+    }
   }
-  if (saveFile_ != "") {
-    TFile fout(saveFile_.c_str(), "RECREATE");
-    gDirectory->WriteObject(hessian_.get(), "hessian");
-  }
-
-
 
   bool print_only_negative = true;
   std::vector<std::string> removed_pars;
@@ -581,6 +633,206 @@ void RobustHesse::SaveHessianToFile(std::string const& filename) {
 }
 void RobustHesse::LoadHessianFromFile(std::string const& filename) {
   loadFile_ = filename;
+}
+
+std::string RobustHesse::PartialHessianFileName(std::string const& filename, unsigned iHesse, unsigned NsplitHesse) {
+  std::string label = ".part" + std::to_string(iHesse) + "of" + std::to_string(NsplitHesse);
+  const std::string ext = ".root";
+  if (filename.size() >= ext.size() && filename.compare(filename.size() - ext.size(), ext.size(), ext) == 0) {
+    return filename.substr(0, filename.size() - ext.size()) + label + ext;
+  }
+  return filename + label + ext;
+}
+
+bool RobustHesse::savePartialHessian(std::string const& filename, unsigned NsplitHesse, unsigned iHesse, unsigned idxMin, unsigned idxMax, unsigned ntotal) const {
+  TFile fout(filename.c_str(), "RECREATE");
+  if (fout.IsZombie() || !fout.IsOpen()) {
+    std::cerr << ">> Error in RobustHesse: cannot create partial Hessian file " << filename << "\n";
+    return false;
+  }
+  // Cells computed by this job, both (i,j) and (j,i) (diagonal once)
+  unsigned row = 0, col = 0;
+  double hessianval = 0.;
+  fout.cd();
+  // Trees are owned by (and deleted with) the output file
+  TTree *tcells = new TTree("partialhessian", "partialhessian");
+  tcells->Branch("row", &row, "row/i");
+  tcells->Branch("col", &col, "col/i");
+  tcells->Branch("hessianval", &hessianval, "hessianval/D");
+  unsigned idx = 0;
+  for (unsigned i = 0; i < cVars_.size(); ++i) {
+    for (unsigned j = i; j < cVars_.size(); ++j, ++idx) {
+      if (idx < idxMin || idx >= idxMax) continue;
+      row = i; col = j; hessianval = (*hessian_)[i][j];
+      tcells->Fill();
+      if (i != j) {
+        row = j; col = i;
+        tcells->Fill();
+      }
+    }
+  }
+  // Parameters (in Hessian order) with their nominal values and stencil rescale factors,
+  // used at merge time to check that all parts are compatible with each other
+  std::string name;
+  double nominal = 0., rescale = 0.;
+  TTree *tpars = new TTree("hessianpars", "hessianpars");
+  tpars->Branch("name", &name);
+  tpars->Branch("nominal", &nominal, "nominal/D");
+  tpars->Branch("rescale", &rescale, "rescale/D");
+  for (auto const& var : cVars_) {
+    name = var.v->GetName();
+    nominal = var.nominal;
+    rescale = var.rescale;
+    tpars->Fill();
+  }
+  TVectorD info(6);
+  info[0] = NsplitHesse;
+  info[1] = iHesse;
+  info[2] = idxMin;
+  info[3] = idxMax;
+  info[4] = ntotal;
+  info[5] = cVars_.size();
+  fout.cd();
+  tcells->Write();
+  tpars->Write();
+  info.Write("splitinfo");
+  fout.Close();
+  return true;
+}
+
+bool RobustHesse::MergePartialHessianFromFile(std::string const& filename, unsigned NsplitHesse) {
+  if (NsplitHesse < 2) {
+    std::cerr << ">> Error in RobustHesse: merging partial Hessians requires NsplitHesse > 1 (got " << NsplitHesse << ")\n";
+    return false;
+  }
+  for (unsigned ipart = 1; ipart <= NsplitHesse; ++ipart) {
+    std::string partFile = PartialHessianFileName(filename, ipart, NsplitHesse);
+    TFile fin(partFile.c_str(), "READ");
+    if (fin.IsZombie() || !fin.IsOpen() || !fin.Get("partialhessian")) {
+      std::cerr << ">> Error in RobustHesse: partial Hessian file " << partFile << " is missing or invalid\n";
+      return false;
+    }
+  }
+  mergeFile_ = filename;
+  mergeNsplit_ = NsplitHesse;
+  return true;
+}
+
+bool RobustHesse::mergePartialHessian() {
+  const unsigned n = cVars_.size();
+  const unsigned N = mergeNsplit_;
+  std::vector<char> seen(size_t(n) * n, 0);
+  TMatrixDSym merged(n);
+  double maxNominalDiff = 0., maxRescaleDiff = 0.;
+  std::string maxNominalPar, maxRescalePar;
+  size_t ncells = 0;
+
+  for (unsigned ipart = 1; ipart <= N; ++ipart) {
+    std::string partFile = PartialHessianFileName(mergeFile_, ipart, N);
+    TFile fin(partFile.c_str(), "READ");
+    if (fin.IsZombie() || !fin.IsOpen()) {
+      std::cerr << ">> Error in RobustHesse: cannot open partial Hessian file " << partFile << "\n";
+      return false;
+    }
+    TTree *tcells = dynamic_cast<TTree*>(fin.Get("partialhessian"));
+    TTree *tpars = dynamic_cast<TTree*>(fin.Get("hessianpars"));
+    TVectorD *info = dynamic_cast<TVectorD*>(fin.Get("splitinfo"));
+    if (!tcells || !tpars || !info || info->GetNrows() < 6) {
+      std::cerr << ">> Error in RobustHesse: " << partFile << " does not contain a valid partial Hessian (partialhessian, hessianpars, splitinfo)\n";
+      return false;
+    }
+    if (unsigned((*info)[0]) != N || unsigned((*info)[1]) != ipart) {
+      std::cerr << ">> Error in RobustHesse: " << partFile << " was produced as part " << unsigned((*info)[1]) << " of " << unsigned((*info)[0])
+                << ", expected part " << ipart << " of " << N << "\n";
+      return false;
+    }
+    // Parameter list must match the current job exactly (same names, same order)
+    if (unsigned((*info)[5]) != n || unsigned(tpars->GetEntries()) != n) {
+      std::cerr << ">> Error in RobustHesse: " << partFile << " has a Hessian of dimension " << unsigned((*info)[5])
+                << " but " << n << " parameters have valid stencils in this job\n";
+      return false;
+    }
+    std::string *pname = nullptr;
+    double nominal = 0., rescale = 0.;
+    tpars->SetBranchAddress("name", &pname);
+    tpars->SetBranchAddress("nominal", &nominal);
+    tpars->SetBranchAddress("rescale", &rescale);
+    for (unsigned k = 0; k < n; ++k) {
+      tpars->GetEntry(k);
+      if (!pname || *pname != cVars_[k].v->GetName()) {
+        std::cerr << ">> Error in RobustHesse: parameter " << k << " in " << partFile << " is " << (pname ? *pname : std::string("?"))
+                  << " but " << cVars_[k].v->GetName() << " in this job (different workspace or parameter ordering)\n";
+        return false;
+      }
+      double dnom = std::fabs(nominal - cVars_[k].nominal) / std::max(1., std::fabs(cVars_[k].nominal));
+      double dres = std::fabs(rescale - cVars_[k].rescale) / std::max(1e-300, std::fabs(cVars_[k].rescale));
+      if (dnom > maxNominalDiff) { maxNominalDiff = dnom; maxNominalPar = cVars_[k].v->GetName(); }
+      if (dres > maxRescaleDiff) { maxRescaleDiff = dres; maxRescalePar = cVars_[k].v->GetName(); }
+    }
+    tpars->ResetBranchAddresses();
+
+    unsigned row = 0, col = 0;
+    double hessianval = 0.;
+    tcells->SetBranchAddress("row", &row);
+    tcells->SetBranchAddress("col", &col);
+    tcells->SetBranchAddress("hessianval", &hessianval);
+    for (Long64_t ientry = 0; ientry < tcells->GetEntries(); ++ientry) {
+      tcells->GetEntry(ientry);
+      if (row >= n || col >= n) {
+        std::cerr << ">> Error in RobustHesse: cell (" << row << ", " << col << ") in " << partFile << " is outside the " << n << "x" << n << " Hessian\n";
+        return false;
+      }
+      char &s = seen[size_t(row) * n + col];
+      if (s) {
+        std::cerr << ">> Error in RobustHesse: cell (" << row << ", " << col << ") appears more than once (duplicate in " << partFile << ")\n";
+        return false;
+      }
+      s = 1;
+      merged[row][col] = hessianval;
+      ++ncells;
+    }
+    tcells->ResetBranchAddresses();
+  }
+
+  if (ncells != size_t(n) * n) {
+    size_t nmissing = 0;
+    for (unsigned i = 0; i < n; ++i) {
+      for (unsigned j = 0; j < n; ++j) {
+        if (!seen[size_t(i) * n + j]) {
+          if (nmissing < 10) std::cerr << ">> Error in RobustHesse: Hessian cell (" << i << ", " << j << ") missing from the partial files\n";
+          ++nmissing;
+        }
+      }
+    }
+    std::cerr << ">> Error in RobustHesse: " << nmissing << " of " << size_t(n) * n << " Hessian cells missing after merging " << N << " parts\n";
+    return false;
+  }
+  for (unsigned i = 0; i < n; ++i) {
+    for (unsigned j = i + 1; j < n; ++j) {
+      if (merged[i][j] != merged[j][i]) {
+        std::cerr << ">> Error in RobustHesse: merged Hessian is not symmetric at (" << i << ", " << j << ")\n";
+        return false;
+      }
+    }
+  }
+  const double tol = 1e-6;
+  if (maxNominalDiff > tol || maxRescaleDiff > tol) {
+    std::cout << ">> Warning in RobustHesse: the partial Hessians were not computed at the same point as this job"
+              << " (max rel. diff of nominal value " << maxNominalDiff << " for " << maxNominalPar
+              << ", of stencil rescale " << maxRescaleDiff << " for " << maxRescalePar << ")."
+              << " All split jobs should start from the same minimum, e.g. --snapshotName MultiDimFit --skipInitialFit\n";
+  }
+  std::cout << ">> Merged " << N << " partial Hessians (" << ncells << " cells, " << n << " parameters) into " << mergeFile_ << "\n";
+
+  *hessian_ = merged;
+  TFile fout(mergeFile_.c_str(), "RECREATE");
+  if (fout.IsZombie() || !fout.IsOpen()) {
+    std::cerr << ">> Error in RobustHesse: cannot write merged Hessian to " << mergeFile_ << "\n";
+    return false;
+  }
+  gDirectory->WriteObject(hessian_.get(), "hessian");
+  fout.Close();
+  return true;
 }
 
 void RobustHesse::ProtectArgSet(RooArgSet const& set) {

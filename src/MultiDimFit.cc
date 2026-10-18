@@ -4,6 +4,7 @@
 
 #include "TMath.h"
 #include "TFile.h"
+#include "TSystem.h"
 #include "RooArgSet.h"
 #include "RooArgList.h"
 #include "RooRandom.h"
@@ -60,6 +61,9 @@ std::string MultiDimFit::fixedPointPOIs_ = "";
 float MultiDimFit::centeredRange_ = -1.0;
 bool        MultiDimFit::robustHesse_ = false;
 std::string MultiDimFit::robustHesseLoad_ = "";
+std::string MultiDimFit::partialrobustHesseLoad_ = "";
+unsigned int MultiDimFit::NsplitHesse_ = 1;
+unsigned int MultiDimFit::iHesse_ = 1;
 std::string MultiDimFit::robustHesseSave_ = "";
 int MultiDimFit::pointsRandProf_ = 0;
 int MultiDimFit::randPointsSeed_ = 0;
@@ -116,6 +120,9 @@ MultiDimFit::MultiDimFit() :
         ("robustHesse",  boost::program_options::value<bool>(&robustHesse_)->default_value(robustHesse_),  "Use a more robust calculation of the hessian/covariance matrix")
         ("robustHesseLoad",  boost::program_options::value<std::string>(&robustHesseLoad_)->default_value(robustHesseLoad_),  "Load the pre-calculated Hessian")
         ("robustHesseSave",  boost::program_options::value<std::string>(&robustHesseSave_)->default_value(robustHesseSave_),  "Save the calculated Hessian")
+        ("NsplitHesse",  boost::program_options::value<unsigned int>(&NsplitHesse_)->default_value(NsplitHesse_),  "Split the robustHesse calculation into N separate jobs. Each job (--iHesse i) computes 1/N of the Hessian cells and saves them to the --robustHesseSave file name with .root replaced by .part<i>of<N>.root. All jobs must start from the same minimum (e.g. --snapshotName MultiDimFit --skipInitialFit)")
+        ("iHesse",  boost::program_options::value<unsigned int>(&iHesse_)->default_value(iHesse_),  "Index (1-based) of this job in a split robustHesse calculation, see --NsplitHesse")
+        ("partialrobustHesseLoad",  boost::program_options::value<std::string>(&partialrobustHesseLoad_)->default_value(partialrobustHesseLoad_),  "Merge the --NsplitHesse partial Hessians <name>.part<i>of<N>.root into the given file <name>.root, load it and compute the covariance")
         ("pointsRandProf",  boost::program_options::value<int>(&pointsRandProf_)->default_value(pointsRandProf_),  "Number of random start points to try for the profiled POIs")
         ("randPointsSeed",  boost::program_options::value<int>(&randPointsSeed_)->default_value(randPointsSeed_),  "Seed to use when generating random start points to try for the profiled POIs")
         ("setParameterRandomInitialValueRanges",  boost::program_options::value<std::string>(&setParameterRandomInitialValueRanges_)->default_value(""),  "Range from which to draw random start points for the profiled POIs. This range should be equal to or smaller than the max and min values for the profiled POIs. Does not override max/min ranges for the given POIs. E.g. usage: c1=-5,5:c2=-1,1")
@@ -163,6 +170,35 @@ void MultiDimFit::applyOptions(const boost::program_options::variables_map &vm)
     massName_ = vm["massName"].as<std::string>();
     toyName_ = vm["toyName"].as<std::string>();
     saveFitResult_ = (vm.count("saveFitResult") > 0);
+
+    // split robustHesse options
+    if (NsplitHesse_ < 1) throw std::invalid_argument("--NsplitHesse must be >= 1");
+    if (iHesse_ < 1 || iHesse_ > NsplitHesse_) {
+        throw std::invalid_argument("--iHesse (" + std::to_string(iHesse_) + ") must satisfy 1 <= iHesse <= NsplitHesse (" + std::to_string(NsplitHesse_) + ")");
+    }
+    if (robustHesse_ && NsplitHesse_ > 1) {
+        if (!robustHesseLoad_.empty()) {
+            throw std::invalid_argument("--robustHesseLoad cannot be combined with --NsplitHesse > 1 (use --partialrobustHesseLoad to merge split jobs)");
+        }
+        if (partialrobustHesseLoad_.empty()) {
+            if (robustHesseSave_.empty()) {
+                throw std::invalid_argument("a split robustHesse job (--NsplitHesse > 1) requires --robustHesseSave to store its partial Hessian");
+            }
+        } else {
+            if (!robustHesseSave_.empty() && robustHesseSave_ != partialrobustHesseLoad_) {
+                throw std::invalid_argument("--robustHesseSave must be empty or equal to --partialrobustHesseLoad in a merge job (the merged Hessian is written to the --partialrobustHesseLoad file)");
+            }
+            for (unsigned int i = 1; i <= NsplitHesse_; ++i) {
+                std::string part = RobustHesse::PartialHessianFileName(partialrobustHesseLoad_, i, NsplitHesse_);
+                if (gSystem->AccessPathName(part.c_str())) {
+                    throw std::invalid_argument("partial Hessian file " + part + " not found");
+                }
+            }
+        }
+    }
+    if (robustHesse_ && !partialrobustHesseLoad_.empty() && NsplitHesse_ < 2) {
+        throw std::invalid_argument("--partialrobustHesseLoad requires --NsplitHesse > 1 (the number of partial Hessian files to merge)");
+    }
 }
 
 bool MultiDimFit::runSpecific(RooWorkspace *w, RooStats::ModelConfig *mc_s, RooStats::ModelConfig *mc_b, RooAbsData &data, double &limit, double &limitErr, const double *hint) { 
@@ -257,7 +293,26 @@ bool MultiDimFit::runSpecific(RooWorkspace *w, RooStats::ModelConfig *mc_s, RooS
         if (robustHesseLoad_ != "") {
           robustHesse.LoadHessianFromFile(robustHesseLoad_);
         }
-        robustHesse.hesse();
+        const bool mergeHesse = (partialrobustHesseLoad_ != "");
+        const bool partialHesse = (NsplitHesse_ > 1) && !mergeHesse;
+        if (mergeHesse && !robustHesse.MergePartialHessianFromFile(partialrobustHesseLoad_, NsplitHesse_)) {
+            std::cerr << "MultiDimFit -- error: cannot merge the partial robustHesse files" << std::endl;
+            Combine::toggleGlobalFillTree(false);
+            return false;
+        }
+        int hesseStatus = partialHesse ? robustHesse.hesse(NsplitHesse_, iHesse_) : robustHesse.hesse();
+        if (hesseStatus != 0) {
+            std::cerr << "MultiDimFit -- error: robustHesse failed (status " << hesseStatus << ")" << std::endl;
+            Combine::toggleGlobalFillTree(false);
+            return false;
+        }
+        if (partialHesse) {
+            // Only part of the Hessian was computed: no covariance matrix / fit result is available.
+            std::cout << "MultiDimFit -- partial robustHesse job " << iHesse_ << "/" << NsplitHesse_
+                      << " done; merge with --partialrobustHesseLoad " << robustHesseSave_ << " --NsplitHesse " << NsplitHesse_ << std::endl;
+            Combine::toggleGlobalFillTree(false);
+            return true;
+        }
         if (saveFitResult_) {
             res.reset(robustHesse.GetRooFitResult(res.get()));
         }

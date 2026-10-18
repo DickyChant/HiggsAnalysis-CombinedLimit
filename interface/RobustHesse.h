@@ -35,11 +35,20 @@ class RobustHesse {
 
   void SaveHessianToFile(std::string const& filename);
   void LoadHessianFromFile(std::string const& filename);
+  // Split ("parallelized") Hessian computation:
+  //  - hesse(N, i) with N > 1 computes only the i-th (1-based) of N slices of the
+  //    upper-triangle Hessian cells and saves them to PartialHessianFileName(saveFile, i, N)
+  //  - MergePartialHessianFromFile(file, N) makes hesse() merge the N part files
+  //    (validating them) into file (TMatrixDSym "hessian") and continue with it
+  bool MergePartialHessianFromFile(std::string const& filename, unsigned NsplitHesse);
+  static std::string PartialHessianFileName(std::string const& filename, unsigned iHesse, unsigned NsplitHesse);
 
   void ProtectArgSet(RooArgSet const& set);
   void ProtectVars(std::vector<std::string> const& names);
 
-  int hesse();
+  // Returns 0 on success, non-zero on error. With NsplitHesse > 1 only the
+  // partial Hessian is computed and saved; no covariance is produced.
+  int hesse(unsigned NsplitHesse = 1, unsigned iHesse = 1);
 
   void WriteOutputFile(std::string const& outputFileName) const;
   RooFitResult * GetRooFitResult(RooFitResult const* current) const;
@@ -77,6 +86,9 @@ class RobustHesse {
 
   void RemoveFromHessian(std::vector<unsigned> const& ids);
 
+  bool savePartialHessian(std::string const& filename, unsigned NsplitHesse, unsigned iHesse, unsigned idxMin, unsigned idxMax, unsigned ntotal) const;
+  bool mergePartialHessian();
+
   void ReplaceVars(std::vector<Var> newVars) {
     cVars_ = newVars;
     nllcache_.clear();
@@ -103,6 +115,8 @@ class RobustHesse {
 
   std::string saveFile_;
   std::string loadFile_;
+  std::string mergeFile_;
+  unsigned mergeNsplit_ = 0;
 
   std::unique_ptr<TMatrixDSym> hessian_;
   std::unique_ptr<TMatrixDSym> covariance_;

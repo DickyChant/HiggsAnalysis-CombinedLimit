@@ -48,6 +48,7 @@ protected:
 
   // options
   static unsigned int points_, firstPoint_, lastPoint_;
+  static unsigned int NsplitHesse_, iHesse_;
   static std::string gridPoints_;
   static bool floatOtherPOIs_;
   static bool squareDistPoiStep_;
@@ -66,6 +67,7 @@ protected:
 
   static bool robustHesse_;
   static std::string robustHesseLoad_;
+  static std::string partialrobustHesseLoad_;
   static std::string robustHesseSave_;
 
   static int pointsRandProf_;
